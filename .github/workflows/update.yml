@@ -1,0 +1,74 @@
+# This is a basic workflow to help you get started with Actions.
+
+name: Update
+
+# Controls when the workflow will run
+
+  # Triggers the workflow on push or pull request events but only for the main branch
+on: 
+  # push:
+  #   branches: [ main ]
+
+    # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  Update_Spinnaker:
+    runs-on: ubuntu-18.04
+    steps:
+      - uses: actions/checkout@v2
+      - name: Setup Job
+        run: |
+          curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo apt-key add -
+          sudo apt-add-repository "deb [arch=$(dpkg --print-architecture)] https://apt.releases.hashicorp.com $(lsb_release -cs) main"
+          sudo apt-get update
+          sudo apt install -y terraform=1.0.11
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && unzip awscliv2.zip
+          sudo ./aws/install
+
+      - name: Gather Updates
+        working-directory: ${{ github.workspace }}
+        run: |
+          export AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
+          export AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          export AWS_DEFAULT_REGION=${{ secrets.AWS_REGION }}
+          export TF_VAR_aws_account=${{ secrets.AWS_ACCOUNT }}
+          export TF_VAR_aws_key=${{ secrets.spin_aws_key }}
+          export TF_VAR_aws_secret=${{ secrets.spin_aws_secret }}
+          export TF_VAR_aws_region=${{ secrets.spin_aws_region }}
+          export TF_VAR_spinnaker_github_org=${{ secrets.SPINNAKER_GITHUB_ORG }}
+          export TF_VAR_spinnaker_github_repo=${{ secrets.SPINNAKER_GITHUB_REPO }}
+          export TF_VAR_github_pat=${{ secrets.spin_github_pat }}
+          terraform init
+          terraform apply -auto-approve
+          
+      - name: Generate Kubeconfig
+        working-directory: ${{ github.workspace }}
+        run: |
+          export AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
+          export AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          export AWS_DEFAULT_REGION=${{ secrets.AWS_REGION }}
+          aws eks update-kubeconfig --name oss-cluster --region $AWS_DEFAULT_REGION --kubeconfig oss-kconfig
+
+      - name: Update Spinnaker
+        working-directory: ${{ github.workspace }}
+        run: |
+          export AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
+          export AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          export AWS_DEFAULT_REGION=${{ secrets.AWS_REGION }}
+          export TF_VAR_aws_account=${{ secrets.AWS_ACCOUNT }}
+          export TF_VAR_aws_key=${{ secrets.spin_aws_key }}
+          export TF_VAR_aws_secret=${{ secrets.spin_aws_secret }}
+          export TF_VAR_aws_region=${{ secrets.spin_aws_region }}
+          export TF_VAR_spinnaker_github_org=${{ secrets.SPINNAKER_GITHUB_ORG }}
+          export TF_VAR_spinnaker_github_repo=${{ secrets.SPINNAKER_GITHUB_REPO }}
+          export TF_VAR_github_pat=${{ secrets.spin_github_pat }}
+          kubectl --kubeconfig ${{ github.workspace }}/oss-kconfig apply -f ${{ github.workspace }}/spinnaker/SpinnakerService.yml
+
+## Bastion shutdown job if using SQL
+      # - name: Shutdown Bastion
+      #   run: |
+      #     export AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
+      #     export AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      #     export AWS_DEFAULT_REGION=${{ secrets.AWS_REGION }}
+      #     aws ec2 terminate-instances --region $AWS_DEFAULT_REGION --instance-ids $(aws ec2 describe-instances --query 'Reservations[].Instances[].InstanceId' --filters "Name=tag:Name,Values=${{ secrets.customer_name }}-bastion" "Name=instance-state-code,Values=16" --output text)| tr '\n' ' '
